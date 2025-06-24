@@ -5,13 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Client: {{ client_id }}</title>
   <style>
-    body, html { margin:0; padding:0; height:100%; background:#1a1a1a; color:#e0e0e0; font-family: Arial, sans-serif; display: flex; flex-direction: column; }
-    header { background: #000; color: #0f0; padding: 1rem; font-family: monospace; display: flex; justify-content: space-between; align-items: center; }
-    header button { background: #242424; border: 1px solid #0f0; color: #0f0; padding: 0.5rem 1rem; font-family: monospace; cursor: pointer; border-radius: 4px; }
+    body, html { margin:0; padding:0; height:100%; background:#111; color:#0f0; font-family: Arial, sans-serif; display: flex; flex-direction: column; }
+    header { background: #000; color: #0f0; padding: 1rem; display: flex; justify-content: space-between; align-items: center; }
+    header button { background: #242424; border: 1px solid #0f0; padding: 0.5rem 1rem; font-family: monospace; cursor: pointer; border-radius: 4px; }
     header button:hover { background: #0f0; color: #000; }
     #info { padding: 0 1rem; background: #242424; }
-    #console { flex: 1; padding:1rem; overflow-y:auto; white-space:pre-wrap; background:#111; color:#0f0; font-family: monospace; }
+    #console { flex: 1; padding:1rem; overflow-y:auto; white-space: pre-wrap; background:#111; color:#0f0; font-family: monospace; }
     #input { width:100%; box-sizing:border-box; padding:0.75rem; border:none; background:#222; color:#0f0; font-family:monospace; }
+    #moduleControls { padding:1rem; background:#242424; display: flex; align-items: center; gap:0.5rem; }
+    #moduleInfo { padding:1rem; background:#2a2a2a; color:#e0e0e0; margin:0 1rem 1rem; border-radius:4px; }
+    #moduleInfo h4 { margin:0 0 0.5rem; }
+    #moduleInfo p { margin:0.25rem 0; }
   </style>
 </head>
 <body>
@@ -26,67 +30,134 @@
     <p><strong>Bytes Received:</strong> <span id="bytes_received"></span></p>
   </div>
   <div id="console"></div>
-  <input id="input" placeholder="C:\\>" autofocus autocomplete="off" />
-  <script>
-    const clientId = '{{ client_id }}';
-    let currentPrompt = 'C:\\>';
-    const consoleDiv = document.getElementById('console');
-    const input = document.getElementById('input');
 
-    function updateInfo() {
-      fetch('/clients')
-        .then(res => res.json())
+  <!-- Module launcher -->
+  <div id="moduleControls">
+    <select id="moduleSelect">
+      <option value="">-- Choose module --</option>
+    </select>
+    <input id="moduleArgs" placeholder="arg1 arg2…" style="flex:1; padding:0.5rem; background:#333; color:#0f0; border:1px solid #0f0; border-radius:4px;" />
+    <button id="execModule">Run Module</button>
+  </div>
+  <div id="moduleInfo">
+    <h4 id="modName">Select a module…</h4>
+    <p id="modDesc"></p>
+    <p><strong>Arguments:</strong> <span id="modArgs"></span></p>
+  </div>
+
+  <input id="input" placeholder="C:\\>" autofocus autocomplete="off" />
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const moduleSelect = document.getElementById('moduleSelect');
+      const modName      = document.getElementById('modName');
+      const modDesc      = document.getElementById('modDesc');
+      const modArgs      = document.getElementById('modArgs');
+      const execBtn      = document.getElementById('execModule');
+      const argsInput    = document.getElementById('moduleArgs');
+      let moduleDefs = [];
+
+      // fetch module metadata
+      fetch('/modules')
+        .then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
         .then(list => {
-          const c = list.find(x => x.id === clientId);
-          if (c) {
+          moduleDefs = list;
+          list.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.name;
+            opt.textContent = m.version ? `${m.name} (v${m.version})` : m.name;
+            moduleSelect.appendChild(opt);
+          });
+        })
+        .catch(err => alert('Error loading modules: ' + err));
+
+      // update module info panel
+      moduleSelect.addEventListener('change', () => {
+        const def = moduleDefs.find(m => m.name === moduleSelect.value);
+        if (def) {
+          modName.textContent = `${def.name}${def.version ? ' — v'+def.version : ''}${def.author ? ' by '+def.author : ''}`;
+          modDesc.textContent = def.desc || '';
+          modArgs.textContent = def.args.length ? def.args.join(', ') : 'None';
+        } else {
+          modName.textContent = 'Select a module…'; modDesc.textContent = ''; modArgs.textContent = '';
+        }
+      });
+
+      execBtn.addEventListener('click', async () => {
+        const mod = moduleSelect.value;
+        const args = argsInput.value.split(' ').filter(x => x);
+        if (!mod) return alert('Pick a module!');
+        try {
+          const res = await fetch(`/client/${clientId}/module`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({module:mod,args})
+          });
+          if (!res.ok) throw `HTTP ${res.status}`;
+        } catch(e) { alert('Error executing module: '+e); }
+      });
+
+      // console & input handling
+      const clientId   = '{{ client_id }}';
+      const consoleDiv = document.getElementById('console');
+      const input      = document.getElementById('input');
+
+      function updateInfo() {
+        fetch('/clients').then(r=>r.json()).then(list=>{
+          const c = list.find(x=>x.id===clientId);
+          if(c) {
             document.getElementById('addr').textContent = c.addr;
             document.getElementById('connected_at').textContent = c.connected_at;
             document.getElementById('last_seen').textContent = c.last_seen;
             document.getElementById('bytes_received').textContent = c.bytes_received;
           }
         });
-    }
+      }
+      setInterval(updateInfo,2000); updateInfo();
 
-    setInterval(updateInfo, 2000);
-    updateInfo();
+      const eventSource = new EventSource(`/client/${clientId}/stream`);
+      eventSource.onmessage = e => {
+        const chunk = e.data.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+        chunk.split('\n').forEach(rawLine => {
+          if (!rawLine) { consoleDiv.textContent+='\n'; return; }
+          const line = rawLine.trim();
 
-    const eventSource = new EventSource(`/client/${clientId}/stream`);
-    eventSource.onmessage = e => {
-      const chunk = e.data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      const lines = chunk.split('\n');
+          // prettify persistence_check output
+          if (line.startsWith('{') && line.endsWith('}')) {
+            try {
+              const obj = JSON.parse(line);
+              if ('Run\\SysUpd' in obj && 'WindowsUpdate\\DataCache_exists' in obj) {
+                const hasSysUpd = obj['Run\\SysUpd'];
+                consoleDiv.textContent += `SysUpd in HKCU\\Run: ${hasSysUpd ? 'Found' : 'Not Found'}\n`;
+                if (hasSysUpd && obj['SysUpdValue']) {
+                  consoleDiv.textContent += `  Value: ${obj['SysUpdValue']}\n`;
+                }
+                const hasCache = obj['WindowsUpdate\\DataCache_exists'];
+                consoleDiv.textContent += `HKCU\\WindowsUpdate\\DataCache: ${hasCache ? 'Exists' : 'Not Found'}\n`;
+                return;
+              }
+            } catch {}
+            // fallback to raw JSON
+            consoleDiv.textContent += rawLine + '\n';
+            return;
+          }
 
-      lines.forEach(rawLine => {
-        if (rawLine === '') {
-          consoleDiv.textContent += '\n';
-          return;
-        }
-        const line = rawLine.trim();
-        if (/^[A-Z]:\\.*>$/.test(line)) {
-          currentPrompt = line;
-          input.placeholder = currentPrompt;
-        } else {
-          consoleDiv.textContent += rawLine + '\n';
+          if (/^[A-Z]:\\.*>$/.test(line)) {
+            input.placeholder = line;
+          } else {
+            consoleDiv.textContent += rawLine + '\n';
+          }
           consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        });
+      };
+      eventSource.addEventListener('close', ()=>{ consoleDiv.textContent+='\n[Disconnected]\n'; eventSource.close(); });
+
+      input.addEventListener('keydown', async e => {
+        if (e.key==='Enter' && input.value) {
+          consoleDiv.textContent+=`${input.placeholder}${input.value}\n\n`;
+          await fetch(`/client/${clientId}/cmd`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cmd:input.value}) });
+          input.value='';
         }
       });
-    };
-
-    eventSource.addEventListener('close', () => {
-      consoleDiv.textContent += '\n[Disconnected]\n';
-      eventSource.close();
-    });
-
-    input.addEventListener('keydown', async e => {
-      if (e.key === 'Enter' && input.value) {
-        const cmd = input.value;
-        consoleDiv.textContent += `${currentPrompt}${cmd}\n\n`;
-        await fetch(`/client/${clientId}/cmd`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cmd })
-        });
-        input.value = '';
-      }
     });
   </script>
 </body>
