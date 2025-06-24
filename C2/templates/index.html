@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RegGhost C2 Dashboard</title>
+  <style>
+    body { background: #1a1a1a; color: #e0e0e0; font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    header { background: #000; color: #0f0; padding: 1rem; text-align: center; font-family: monospace; font-size: 1.5rem; }
+    .container { padding: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { padding: 0.75rem; border: 1px solid #333; text-align: left; }
+    th { background: #2a2a2a; }
+    tr:nth-child(even) { background: #252525; }
+    a { color: #0f0; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <header>RegGhost C2 Dashboard</header>
+  <div class="container">
+    <h2>Connected Clients</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Address</th>
+          <th>Connected At</th>
+          <th>Last Seen</th>
+          <th>Bytes Received</th>
+        </tr>
+      </thead>
+      <tbody id="clients"></tbody>
+    </table>
+  </div>
+  <script>
+    async function refresh() {
+      const res = await fetch('/clients');
+      const list = await res.json();
+      const tbody = document.getElementById('clients');
+      tbody.innerHTML = '';
+      list.forEach(c => {
+        const tr = document.createElement('tr');
+        ['id','addr','connected_at','last_seen','bytes_received'].forEach(f=>{
+          const td = document.createElement('td');
+          if (f==='id') {
+            const a = document.createElement('a');
+            a.href = `/client/${c.id}`;
+            a.textContent = c.id;
+            td.appendChild(a);
+          } else {
+            td.textContent = c[f] || '';
+          }
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    }
+    setInterval(refresh, 2000);
+    refresh();
+  </script>
+</body>
+</html>
