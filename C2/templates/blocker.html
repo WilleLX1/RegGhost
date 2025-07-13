@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width">
+  <title>Bot Blocker</title>
+  <style>
+    body { background:#1a1a1a;color:#e0e0e0;font-family:Arial,sans-serif;padding:1rem; }
+    header { background:#000;color:#0f0;padding:1rem;font-family:monospace;font-size:1.5rem; }
+    a { color:#0f0;text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    form { margin-bottom:1rem; }
+    input { padding:0.5rem; width:200px; }
+    button { padding:0.5rem; }
+    ul { list-style:none; padding:0; }
+    li { margin:0.5rem 0; }
+    li form { display:inline; }
+  </style>
+</head>
+<body>
+  <header>
+    RegGhost C2 Dashboard
+    <a href="/" style="float:right;">Back</a>
+  </header>
+  <h2>Bot Blocker</h2>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat,msg in messages %}
+      <div class="flash {{cat}}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+  <form method="post">
+    <input name="ip" placeholder="IP or prefix (e.g. 3.130.96.)" required>
+    <button name="action" value="add">Block</button>
+  </form>
+  <ul>
+    {% for ip in blocked %}
+      <li>
+        {{ ip }}
+        <form method="post" style="display:inline">
+          <input type="hidden" name="ip" value="{{ip}}">
+          <button name="action" value="remove">Unblock</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+</body>
+</html>

